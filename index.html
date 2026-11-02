@@ -42,7 +42,17 @@
 //   …/#mp4        → このページに置いた自前のテスト動画（ピッ音）で同じことをする
 const DEFAULT_YT = "OOUUq14b4W0";
 const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
-const mode = hash.toLowerCase() === "mp4" ? "mp4" : "yt";
+// #app または #app動画ID → YouTubeアプリで開くよう、iPhoneに頼む（2026-11-02：Safari内ではキーで消音を解く方法が安定しなかったため）
+const isApp = hash.toLowerCase().startsWith("app");
+if (isApp) {
+  const id = hash.slice(3) || DEFAULT_YT;
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("status").textContent = "YouTubeアプリで開きます…（確認が出たらEnterキー）";
+  });
+  setTimeout(() => { location.href = "youtube://www.youtube.com/watch?v=" + id; }, 600);
+  setTimeout(() => { location.href = "youtube://" + id; }, 4000);
+}
+const mode = isApp ? "app" : hash.toLowerCase() === "mp4" ? "mp4" : "yt";
 const ytId = mode === "yt" ? (hash || DEFAULT_YT) : null;
 
 const screen = document.getElementById("screen");
@@ -62,7 +72,7 @@ function log(msg) {
 }
 function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
 
-log(`モード: ${mode === "mp4" ? "自前の動画(mp4)" : "YouTube " + ytId}`);
+log(`モード: ${mode === "app" ? "YouTubeアプリへ渡す" : mode === "mp4" ? "自前の動画(mp4)" : "YouTube " + ytId}`);
 
 // ---------- 自前の動画 ----------
 if (mode === "mp4") {
@@ -83,7 +93,7 @@ if (mode === "yt") {
   const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api";
   document.head.appendChild(s);
 }
-screen.appendChild(startBtn);
+if (mode !== "app") screen.appendChild(startBtn);
 window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player("yt", {
     videoId: ytId,
