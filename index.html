@@ -16,6 +16,10 @@
     box-shadow:0 0 60px rgba(216,178,90,.15); position:relative; }
   .screen > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
   video { object-fit:contain; background:#000; }
+  #start { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:8px;
+    background:rgba(0,0,0,.45); color:var(--text); font-size:26px; font-weight:800; letter-spacing:.1em; border:0; cursor:pointer; z-index:5; }
+  #start .tri { width:76px; height:76px; border-radius:50%; background:var(--gold); color:#1a1206; display:flex; align-items:center; justify-content:center; font-size:34px; padding-left:6px; box-shadow:0 0 30px rgba(216,178,90,.5); }
+  #start.hidden { display:none; }
   #status { font-size:22px; font-weight:700; text-align:center; min-height:1.4em; }
   #status.ok { color:var(--ok); } #status.ng { color:var(--ng); }
   #log { width:100%; max-width:720px; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--muted);
@@ -42,6 +46,11 @@ const mode = hash.toLowerCase() === "mp4" ? "mp4" : "yt";
 const ytId = mode === "yt" ? (hash || DEFAULT_YT) : null;
 
 const screen = document.getElementById("screen");
+// 観客に押してもらう「上映開始」ボタン（2026-11-02：キーではフォーカス次第で届かないため、確実な方法として追加）
+const startBtn = document.createElement("button");
+startBtn.id = "start"; startBtn.innerHTML = '<span class="tri">▶</span><span>上映開始</span>';
+startBtn.addEventListener("click", () => unlock("上映開始ボタン"));
+
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 let unlocked = false;
@@ -74,6 +83,7 @@ if (mode === "yt") {
   const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api";
   document.head.appendChild(s);
 }
+screen.appendChild(startBtn);
 window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player("yt", {
     videoId: ytId,
@@ -95,6 +105,7 @@ function unlock(source) {
       unlocked = true;
       setTimeout(() => {
         const ok = !video.muted && !video.paused;
+        if (ok) startBtn.classList.add("hidden");
         setStatus(ok ? "🔊 音ありで再生中（成功）" : "🔇 まだ消音（失敗）", ok ? "ok" : "ng");
         log(`結果: muted=${video.muted} paused=${video.paused}`);
       }, 600);
@@ -109,6 +120,7 @@ function unlock(source) {
       setStatus(!muted && playing ? "🔊 音ありで再生中（成功）" : `🔇 まだ消音か停止中（失敗）`, !muted && playing ? "ok" : "ng");
       log(`結果: 消音=${muted} 状態=${player.getPlayerState()}`);
       unlocked = !muted && playing;
+      if (unlocked) startBtn.classList.add("hidden");
     }, 1000);
   }
 }
