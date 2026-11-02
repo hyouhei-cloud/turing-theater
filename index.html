@@ -26,6 +26,7 @@
   <div class="marquee">★ TURING THEATER ★</div>
   <div class="screen" id="screen"></div>
   <div id="status">キーを1つ送ってください（スペース・Enter・Mなど）</div>
+  <div id="beat" style="font-size:12px;color:#9c968a"></div>
   <div id="log"></div>
 
 <script>
@@ -109,6 +110,10 @@ function unlock(source) {
   }
 }
 
+// 診断用：ページにどんな合図が届いたかを全部記録する（2026-11-02 実機でキーが無反応だったため）
+["keyup","keypress","focus","blur","visibilitychange","pageshow","pointerdown"].forEach(t =>
+  window.addEventListener(t, e => log(`届いた合図: ${t}${e.key ? "「" + e.key + "」" : ""}${t === "visibilitychange" ? " " + document.visibilityState : ""}`), true));
+setInterval(() => { document.getElementById("beat").textContent = `ページ動作中 ${new Date().toLocaleTimeString("ja-JP")}　フォーカス=${document.hasFocus() ? "ページ" : "ページ外"}`; }, 1000);
 document.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Tab") e.preventDefault();
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
