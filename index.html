@@ -25,6 +25,7 @@
 <body>
   <div class="marquee">★ TURING THEATER ★</div>
   <div class="screen" id="screen"></div>
+  <input id="catcher" autofocus autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="none" aria-label="キー受け" style="position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;font-size:16px;border:0;padding:0">
   <div id="status">キーを1つ送ってください（スペース・Enter・Mなど）</div>
   <div id="beat" style="font-size:12px;color:#9c968a"></div>
   <div id="log"></div>
@@ -118,15 +119,19 @@ function unlock(source) {
 // フォーカスをページに引き寄せる試み（2026-11-02 実機で「ページ外」になることがあったため）
 document.body.tabIndex = -1;
 let lastFocus = null;
+const catcher = document.getElementById("catcher");
+// 打ち込まれた文字は消す（入力欄に文字がたまらないように）
+catcher.addEventListener("input", () => { catcher.value = ""; });
 function pullFocus(why) {
-  try { window.focus(); document.body.focus({ preventScroll: true }); } catch (e) {}
+  // 2026-11-02 実機で body への focus では「ページ外」のままだったため、入力欄にフォーカスを当てる
+  try { window.focus(); if (document.activeElement !== catcher) catcher.focus({ preventScroll: true }); } catch (e) {}
   const f = document.hasFocus();
   if (f !== lastFocus) { log(`フォーカス: ${f ? "ページ" : "ページ外"}（${why}）`); lastFocus = f; }
 }
 pullFocus("読み込み直後");
 let pulls = 0;
 const pullTimer = setInterval(() => { pullFocus("自動"); if (++pulls > 20) clearInterval(pullTimer); }, 500);
-setInterval(() => { document.getElementById("beat").textContent = `ページ動作中 ${new Date().toLocaleTimeString("ja-JP")}　フォーカス=${document.hasFocus() ? "ページ" : "ページ外"}`;   pullFocus("監視");
+setInterval(() => { document.getElementById("beat").textContent = `ページ動作中 ${new Date().toLocaleTimeString("ja-JP")}　フォーカス=${document.hasFocus() ? "ページ" : "ページ外"}・入力欄=${document.activeElement === catcher ? "○" : "×"}`;   pullFocus("監視");
 }, 1000);
 document.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Tab") e.preventDefault();
