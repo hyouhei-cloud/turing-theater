@@ -113,7 +113,19 @@ function unlock(source) {
 // 診断用：ページにどんな合図が届いたかを全部記録する（2026-11-02 実機でキーが無反応だったため）
 ["keyup","keypress","focus","blur","visibilitychange","pageshow","pointerdown"].forEach(t =>
   window.addEventListener(t, e => log(`届いた合図: ${t}${e.key ? "「" + e.key + "」" : ""}${t === "visibilitychange" ? " " + document.visibilityState : ""}`), true));
-setInterval(() => { document.getElementById("beat").textContent = `ページ動作中 ${new Date().toLocaleTimeString("ja-JP")}　フォーカス=${document.hasFocus() ? "ページ" : "ページ外"}`; }, 1000);
+// フォーカスをページに引き寄せる試み（2026-11-02 実機で「ページ外」になることがあったため）
+document.body.tabIndex = -1;
+let lastFocus = null;
+function pullFocus(why) {
+  try { window.focus(); document.body.focus({ preventScroll: true }); } catch (e) {}
+  const f = document.hasFocus();
+  if (f !== lastFocus) { log(`フォーカス: ${f ? "ページ" : "ページ外"}（${why}）`); lastFocus = f; }
+}
+pullFocus("読み込み直後");
+let pulls = 0;
+const pullTimer = setInterval(() => { pullFocus("自動"); if (++pulls > 20) clearInterval(pullTimer); }, 500);
+setInterval(() => { document.getElementById("beat").textContent = `ページ動作中 ${new Date().toLocaleTimeString("ja-JP")}　フォーカス=${document.hasFocus() ? "ページ" : "ページ外"}`;   pullFocus("監視");
+}, 1000);
 document.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Tab") e.preventDefault();
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
