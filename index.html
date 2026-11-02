@@ -49,11 +49,17 @@ const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
 // 本番用（MOVIEモジュールが開く形。2026-11-02）：
 //   #app動画ID → YouTubeアプリで開くようiPhoneに頼む（確認はアプリがEnterで通す）。アプリが無ければ #tap に切り替え
 //   #tap動画ID → このページで、観客に「▶ 上映開始」をタップしてもらう
-//   動画IDの「_」は、打ち込みで化けないよう「.」で届くので「_」に戻す
+//   動画IDは、打ち込みで化けないよう16進数（22文字の0-9a-f）で届くので元に戻す
+//   （2026-11-03：大文字や「_」を打つとIDが崩れ「この動画は再生できません」になったため）
+//   以前の形（そのままのID、「_」を「.」にしたID）も受け付ける
 const lowerHash = hash.toLowerCase();
 const show = lowerHash.startsWith("app") ? "app" : lowerHash.startsWith("tap") ? "tap" : null;
 const rawId = show ? hash.slice(3) : hash;
-const decodedId = rawId.replace(/\./g, "_");
+function decodeId(s) {
+  if (/^[0-9a-f]{22}$/i.test(s)) return s.match(/../g).map(h => String.fromCharCode(parseInt(h, 16))).join("");
+  return s.replace(/\./g, "_");
+}
+const decodedId = decodeId(rawId);
 const isApp = show === "app";
 const tapMode = show === "tap";
 if (show) document.documentElement.classList.add("show");
