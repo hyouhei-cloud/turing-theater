@@ -47,7 +47,7 @@
 const DEFAULT_YT = "OOUUq14b4W0";
 const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
 // 本番用（MOVIEモジュールが開く形。2026-11-02）：
-//   #app動画ID → YouTubeアプリで開くようiPhoneに頼む（確認はアプリがEnterで通す）。アプリが無ければ #tap に切り替え
+//   #app動画ID → YouTubeアプリで開くようiPhoneに頼む（確認は、演者の合図でアプリがEnterで通す）
 //   #tap動画ID → このページで、観客に「▶ 上映開始」をタップしてもらう
 //   動画IDは、打ち込みで化けないよう16進数（22文字の0-9a-f）で届くので元に戻す
 //   （2026-11-03：大文字や「_」を打つとIDが崩れ「この動画は再生できません」になったため）
@@ -67,14 +67,9 @@ if (isApp) {
   const id = decodedId || DEFAULT_YT;
   setTimeout(() => { location.href = "youtube://www.youtube.com/watch?v=" + id; }, 600);
 }
-// YouTubeアプリが入っていない時の受け皿：しばらくたってもこのページが表に出たままなら、#tap（観客がタップ）に切り替える
-let appFellBack = false;
-if (isApp) setTimeout(() => {
-  if (document.visibilityState === "visible" && !appFellBack) {
-    appFellBack = true;
-    location.replace(location.pathname + "#tap" + rawId);
-  }
-}, 7000);
+// 以前は、7秒たってもYouTubeアプリに移らなければ #tap に切り替えていた。
+// 2026-11-03：アプリは「"YouTube"で開きますか？」を出したまま演者の合図（Enter）を待つ形に変えたため、切り替えはやめた
+// （待っている間に切り替わると、確認が消えてしまう）。YouTubeアプリが無い相手には、アプリ側で #tap を選ぶ
 const mode = isApp ? "app" : lowerHash === "mp4" ? "mp4" : "yt";
 const ytId = mode === "yt" ? (decodedId || DEFAULT_YT) : null;
 
