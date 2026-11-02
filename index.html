@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>上映テスト</title>
+<style>
+  :root { --bg:#0b0b0d; --curtain:#5a0d12; --gold:#d8b25a; --text:#f3efe6; --muted:#9c968a; --ok:#5fd38a; --ng:#ff6b6b; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Hiragino Sans",sans-serif; overflow:hidden; }
+  body { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+    padding:16px; background:radial-gradient(ellipse at 50% 0%, #2a0a0d 0%, var(--bg) 70%); }
+  .marquee { color:var(--gold); letter-spacing:.3em; font-size:14px; }
+  .screen { width:100%; max-width:720px; aspect-ratio:16/9; background:#000; border:3px solid #222;
+    box-shadow:0 0 60px rgba(216,178,90,.15); position:relative; }
+  .screen > * { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  video { object-fit:contain; background:#000; }
+  #status { font-size:22px; font-weight:700; text-align:center; min-height:1.4em; }
+  #status.ok { color:var(--ok); } #status.ng { color:var(--ng); }
+  #log { width:100%; max-width:720px; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--muted);
+    max-height:28vh; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+  <div class="marquee">★ TURING THEATER ★</div>
+  <div class="screen" id="screen"></div>
+  <div id="status">キーを1つ送ってください（スペース・Enter・Mなど）</div>
+  <div id="log"></div>
+
+<script>
+// 上映テスト（MOVIEモジュールの検証用 2026-11-02）
+// 使い方：
+//   …/            → YouTube（初期の動画）を消音で流し、キーを受け取ったら消音を解く
+//   …/#動画ID      → その YouTube 動画で同じことをする
+//   …/#mp4        → このページに置いた自前のテスト動画（ピッ音）で同じことをする
+const DEFAULT_YT = "OOUUq14b4W0";
+const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
+const mode = hash.toLowerCase() === "mp4" ? "mp4" : "yt";
+const ytId = mode === "yt" ? (hash || DEFAULT_YT) : null;
+
+const screen = document.getElementById("screen");
+const statusEl = document.getElementById("status");
+const logEl = document.getElementById("log");
+let unlocked = false;
+let player = null, ytReady = false, video = null;
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString("ja-JP");
+  logEl.textContent = `${t}  ${msg}\n` + logEl.textContent;
+}
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
+
+log(`モード: ${mode === "mp4" ? "自前の動画(mp4)" : "YouTube " + ytId}`);
+
+// ---------- 自前の動画 ----------
+if (mode === "mp4") {
+  video = document.createElement("video");
+  video.src = "test.mp4";
+  video.muted = true; video.autoplay = true; video.loop = true;
+  video.playsInline = true; video.setAttribute("playsinline", "");
+  screen.appendChild(video);
+  video.play().then(() => log("消音で自動再生できました"))
+              .catch(e => log("自動再生できず: " + e.name));
+}
+
+// ---------- YouTube ----------
+if (mode === "yt") {
+  const div = document.createElement("div"); div.id = "yt"; screen.appendChild(div);
+  const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+}
+window.onYouTubeIframeAPIReady = function () {
+  player = new YT.Player("yt", {
+    videoId: ytId,
+    playerVars: { autoplay: 1, mute: 1, playsinline: 1, controls: 0, rel: 0, modestbranding: 1 },
+    events: {
+      onReady: () => { ytReady = true; log("YouTubeの準備ができました"); player.mute(); player.playVideo(); },
+      onStateChange: e => log("YouTubeの状態: " + ({"-1":"未開始","0":"終了","1":"再生中","2":"一時停止","3":"読み込み中","5":"頭出し"}[e.data] ?? e.data)),
+      onError: e => log("YouTubeのエラー: " + e.data)
+    }
+  });
+};
+
+// ---------- キーを受け取ったら消音を解く ----------
+function unlock(source) {
+  log(`受け取り: ${source}`);
+  if (mode === "mp4" && video) {
+    video.muted = false; video.volume = 1;
+    video.play().then(() => {
+      unlocked = true;
+      setTimeout(() => {
+        const ok = !video.muted && !video.paused;
+        setStatus(ok ? "🔊 音ありで再生中（成功）" : "🔇 まだ消音（失敗）", ok ? "ok" : "ng");
+        log(`結果: muted=${video.muted} paused=${video.paused}`);
+      }, 600);
+    }).catch(e => { setStatus("🔇 音ありで再生できません: " + e.name, "ng"); log("失敗: " + e.name); });
+  }
+  if (mode === "yt") {
+    if (!ytReady) { setStatus("YouTubeの準備中です。もう一度キーを送ってください", "ng"); return; }
+    player.unMute(); player.setVolume(100); player.playVideo();
+    setTimeout(() => {
+      const muted = player.isMuted();
+      const playing = player.getPlayerState() === 1;
+      setStatus(!muted && playing ? "🔊 音ありで再生中（成功）" : `🔇 まだ消音か停止中（失敗）`, !muted && playing ? "ok" : "ng");
+      log(`結果: 消音=${muted} 状態=${player.getPlayerState()}`);
+      unlocked = !muted && playing;
+    }, 1000);
+  }
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === " " || e.key === "Tab") e.preventDefault();
+  unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
+});
+// 指で画面を触った場合も同じ（比較用）
+document.addEventListener("touchend", () => unlock("画面タッチ"), { passive: true });
+</script>
+</body>
+</html>
