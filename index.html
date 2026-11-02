@@ -113,6 +113,8 @@ document.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Tab") e.preventDefault();
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
 });
+// 末尾（#mp4 など）だけ変えて開き直したときは、読み込み直して切り替える
+window.addEventListener("hashchange", () => location.reload());
 // 指で画面を触った場合も同じ（比較用）
 document.addEventListener("touchend", () => unlock("画面タッチ"), { passive: true });
 </script>
