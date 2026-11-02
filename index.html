@@ -20,6 +20,10 @@
     background:rgba(0,0,0,.45); color:var(--text); font-size:26px; font-weight:800; letter-spacing:.1em; border:0; cursor:pointer; z-index:5; }
   #start .tri { width:76px; height:76px; border-radius:50%; background:var(--gold); color:#1a1206; display:flex; align-items:center; justify-content:center; font-size:34px; padding-left:6px; box-shadow:0 0 30px rgba(216,178,90,.5); }
   #start.hidden { display:none; }
+  /* 本番（#app・#tap）では検証用の表示を隠す */
+  .show #status, .show #log, .show #beat { display:none; }
+  #soon { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--gold);
+    font-size:24px; font-weight:800; letter-spacing:.2em; }
   #status { font-size:22px; font-weight:700; text-align:center; min-height:1.4em; }
   #status.ok { color:var(--ok); } #status.ng { color:var(--ng); }
   #log { width:100%; max-width:720px; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--muted);
@@ -42,26 +46,31 @@
 //   …/#mp4        → このページに置いた自前のテスト動画（ピッ音）で同じことをする
 const DEFAULT_YT = "OOUUq14b4W0";
 const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
-// #app または #app動画ID → YouTubeアプリで開くよう、iPhoneに頼む（2026-11-02：Safari内ではキーで消音を解く方法が安定しなかったため）
-const isApp = hash.toLowerCase().startsWith("app");
+// 本番用（MOVIEモジュールが開く形。2026-11-02）：
+//   #app動画ID → YouTubeアプリで開くようiPhoneに頼む（確認はアプリがEnterで通す）。アプリが無ければ #tap に切り替え
+//   #tap動画ID → このページで、観客に「▶ 上映開始」をタップしてもらう
+//   動画IDの「_」は、打ち込みで化けないよう「.」で届くので「_」に戻す
+const lowerHash = hash.toLowerCase();
+const show = lowerHash.startsWith("app") ? "app" : lowerHash.startsWith("tap") ? "tap" : null;
+const rawId = show ? hash.slice(3) : hash;
+const decodedId = rawId.replace(/\./g, "_");
+const isApp = show === "app";
+const tapMode = show === "tap";
+if (show) document.documentElement.classList.add("show");
 if (isApp) {
-  const id = hash.slice(3) || DEFAULT_YT;
-  document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("status").textContent = "YouTubeアプリで開きます…（確認が出たらEnterキー）";
-  });
+  const id = decodedId || DEFAULT_YT;
   setTimeout(() => { location.href = "youtube://www.youtube.com/watch?v=" + id; }, 600);
 }
-// YouTubeアプリが入っていない時の受け皿：数秒たってもこのページが表に出たままなら、Safari内で流す（▶上映開始ボタン付き）
+// YouTubeアプリが入っていない時の受け皿：しばらくたってもこのページが表に出たままなら、#tap（観客がタップ）に切り替える
 let appFellBack = false;
 if (isApp) setTimeout(() => {
   if (document.visibilityState === "visible" && !appFellBack) {
     appFellBack = true;
-    log("YouTubeアプリに移らなかったため、このページで流します");
-    location.replace(location.pathname + "#" + (hash.slice(3) || DEFAULT_YT));
+    location.replace(location.pathname + "#tap" + rawId);
   }
-}, 5000);
-const mode = isApp ? "app" : hash.toLowerCase() === "mp4" ? "mp4" : "yt";
-const ytId = mode === "yt" ? (hash || DEFAULT_YT) : null;
+}, 7000);
+const mode = isApp ? "app" : lowerHash === "mp4" ? "mp4" : "yt";
+const ytId = mode === "yt" ? (decodedId || DEFAULT_YT) : null;
 
 const screen = document.getElementById("screen");
 // 観客に押してもらう「上映開始」ボタン（2026-11-02：キーではフォーカス次第で届かないため、確実な方法として追加）
@@ -102,13 +111,18 @@ if (mode === "yt") {
   document.head.appendChild(s);
 }
 if (mode !== "app") screen.appendChild(startBtn);
+else { const soon = document.createElement("div"); soon.id = "soon"; soon.textContent = "まもなく上映"; screen.appendChild(soon); }
 window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player("yt", {
     videoId: ytId,
     playerVars: { autoplay: 1, mute: 1, playsinline: 1, controls: 0, rel: 0, modestbranding: 1 },
     events: {
       onReady: () => { ytReady = true; log("YouTubeの準備ができました"); player.mute(); player.playVideo(); },
-      onStateChange: e => { if (e.data === 1 && ytLastState === 2) onMediaToggled("YouTube", true); ytLastState = e.data; log("YouTubeの状態: " + ({"-1":"未開始","0":"終了","1":"再生中","2":"一時停止","3":"読み込み中","5":"頭出し"}[e.data] ?? e.data)); },
+      onStateChange: e => {
+        // #tap：観客がタップするまでは、最初の場面で止めておく（消音で流れ始めたらすぐ止めて頭に戻す）
+        if (tapMode && e.data === 1 && !unlocked && !tapHeld) { tapHeld = true; player.pauseVideo(); player.seekTo(0, true); }
+        else if (e.data === 1 && ytLastState === 2 && !tapMode) onMediaToggled("YouTube", true);
+        ytLastState = e.data; log("YouTubeの状態: " + ({"-1":"未開始","0":"終了","1":"再生中","2":"一時停止","3":"読み込み中","5":"頭出し"}[e.data] ?? e.data)); },
       onError: e => log("YouTubeのエラー: " + e.data)
     }
   });
@@ -182,6 +196,7 @@ if ("mediaSession" in navigator) {
 } else { log("このSafariはメディアキーの受け口に未対応"); }
 // 動画そのものが止まった／動いた時も記録し、動いた瞬間に消音を解いてみる
 let ytLastState = null;
+let tapHeld = false;
 function onMediaToggled(src, playing) {
   log(`${src}: ${playing ? "再生" : "一時停止"}になりました`);
   if (playing && !unlocked) unlock(src + "の再生");
