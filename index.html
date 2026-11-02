@@ -50,8 +50,16 @@ if (isApp) {
     document.getElementById("status").textContent = "YouTubeアプリで開きます…（確認が出たらEnterキー）";
   });
   setTimeout(() => { location.href = "youtube://www.youtube.com/watch?v=" + id; }, 600);
-  setTimeout(() => { location.href = "youtube://" + id; }, 4000);
 }
+// YouTubeアプリが入っていない時の受け皿：数秒たってもこのページが表に出たままなら、Safari内で流す（▶上映開始ボタン付き）
+let appFellBack = false;
+if (isApp) setTimeout(() => {
+  if (document.visibilityState === "visible" && !appFellBack) {
+    appFellBack = true;
+    log("YouTubeアプリに移らなかったため、このページで流します");
+    location.replace(location.pathname + "#" + (hash.slice(3) || DEFAULT_YT));
+  }
+}, 5000);
 const mode = isApp ? "app" : hash.toLowerCase() === "mp4" ? "mp4" : "yt";
 const ytId = mode === "yt" ? (hash || DEFAULT_YT) : null;
 
