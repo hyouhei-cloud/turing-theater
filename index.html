@@ -49,7 +49,7 @@ const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
 // 本番用（MOVIEモジュールが開く形。2026-11-02）：
 //   #app動画ID → YouTubeアプリで開くようiPhoneに頼む（確認は、演者の合図でアプリがEnterで通す）
 //   #tap動画ID → このページで、観客に「▶ 上映開始」をタップしてもらう
-//   #key動画ID → 演者の合図（再生／一時停止のメディアキー、またはEnter）が届いてから、YouTubeアプリで開くよう頼む
+//   #key動画ID → 演者の合図（アプリが送る再読み込み⌘R）が届いてから、YouTubeアプリで開くよう頼む
 //                （2026-11-03：#appで「開きますか？」を出したまま長く待つと、Enterが効かなくなったため。
 //                  合図の時に「開きますか？」を出し、出た直後のEnterで通す）
 //   動画IDは、打ち込みで化けないよう16進数（22文字の0-9a-f）で届くので元に戻す
@@ -116,34 +116,23 @@ if (mode === "yt") {
   document.head.appendChild(s);
 }
 // ---------- #key：合図を待ってからYouTubeアプリへ ----------
-// メディアキーは、ページで動画が流れていればフォーカスに関係なく届く（2026-11-02 実機）。
-// そのため消音の動画を流し続け、合図の「再生／一時停止」でその動画が止まったら、YouTubeアプリで開くよう頼む
+// 合図はアプリが送る「再読み込み（⌘R）」。読み込み直されたページは、すぐにYouTubeアプリで開くよう頼む
+// （ページを開いた直後なら、ページからアプリを開く確認が出せる。出た直後に、アプリがEnterで「開く」を押す）。
+// 2026-11-03 実機：メディアキーは消音の動画に届かず、キーもフォーカス次第で届かないため、再読み込みを合図にした
 const loadedAt = Date.now();
 let lastLaunch = 0;
 function launchApp(source) {
   if (!isKey) return;
   const now = Date.now();
-  if (now - loadedAt < 1500 || now - lastLaunch < 1500) return;
+  if (now - lastLaunch < 1500) return;
   lastLaunch = now;
   log(`合図: ${source} → YouTubeアプリで開く`);
   location.href = "youtube://www.youtube.com/watch?v=" + (decodedId || DEFAULT_YT);
 }
-if (mode === "key") {
-  video = document.createElement("video");
-  video.src = "test.mp4";
-  video.muted = true; video.autoplay = true; video.loop = true;
-  video.playsInline = true; video.setAttribute("playsinline", "");
-  screen.appendChild(video);
-  video.addEventListener("pause", () => {
-    if (document.visibilityState === "visible" && !video.ended) launchApp("再生／一時停止キー");
-    video.play().catch(() => {});
-  });
-  video.play().catch(e => log("自動再生できず: " + e.name));
-  if ("mediaSession" in navigator) {
-    for (const a of ["play", "pause"]) {
-      try { navigator.mediaSession.setActionHandler(a, () => launchApp("メディアキー " + a)); } catch (e) {}
-    }
-  }
+if (isKey) {
+  const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
+  const reloaded = nav ? nav.type === "reload" : (performance.navigation && performance.navigation.type === 1);
+  if (reloaded) setTimeout(() => launchApp("再読み込み"), 300);
 }
 if (mode !== "app" && mode !== "key") screen.appendChild(startBtn);
 else { const soon = document.createElement("div"); soon.id = "soon"; soon.textContent = "まもなく上映"; screen.appendChild(soon); }
@@ -214,7 +203,7 @@ setInterval(() => { document.getElementById("beat").textContent = `ページ動�
 }, 1000);
 document.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Tab") e.preventDefault();
-  if (e.key === "Enter" || e.key === " ") launchApp(`キー「${e.key === " " ? "スペース" : e.key}」`);
+  if ((e.key === "Enter" || e.key === " ") && Date.now() - loadedAt > 1500) launchApp(`キー「${e.key === " " ? "スペース" : e.key}」`);
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
 });
 // 末尾（#mp4 など）だけ変えて開き直したときは、読み込み直して切り替える
