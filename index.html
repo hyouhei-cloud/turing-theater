@@ -24,6 +24,9 @@
   .show #status, .show #log, .show #beat { display:none; }
   #soon { position:absolute; inset:0; background:#000; display:flex; align-items:center; justify-content:center; color:var(--gold);
     font-size:24px; font-weight:800; letter-spacing:.2em; }
+  /* 調べもの用：届いた文字と読み取った番号（2026-11-04） */
+  #diag { position:fixed; left:8px; right:8px; bottom:8px; z-index:20; font:11px/1.5 ui-monospace,Menlo,monospace;
+    color:#888; white-space:pre-wrap; word-break:break-all; }
   #status { font-size:22px; font-weight:700; text-align:center; min-height:1.4em; }
   #status.ok { color:var(--ok); } #status.ng { color:var(--ng); }
   #log { width:100%; max-width:720px; font:12px/1.5 ui-monospace,Menlo,monospace; color:var(--muted);
@@ -145,13 +148,38 @@ function launchApp(source) {
   log(`合図: ${source} → YouTubeアプリで開く`);
   location.href = "youtube://www.youtube.com/watch?v=" + (decodedId || DEFAULT_YT);
 }
+// 2026-11-04：前の上映ページを表示したまま次のURLを打つと「#」の後ろだけ変わり、ページが自分で読み込み直す。
+// これも「再読み込み」と記録されるため、準備の時点で確認が出てしまっていた → 自分で読み直した時は合図にしない
+let selfReload = false;
+try { selfReload = sessionStorage.getItem("turingSelfReload") === "1"; sessionStorage.removeItem("turingSelfReload"); } catch (e) {}
+let cueState = "合図待ち";
 if (isKey) {
   const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
   const reloaded = nav ? nav.type === "reload" : (performance.navigation && performance.navigation.type === 1);
-  if (reloaded) setTimeout(() => launchApp("再読み込み"), 300);
+  if (reloaded && !selfReload) { cueState = "再読み込み＝合図 → YouTubeへ"; setTimeout(() => launchApp("再読み込み"), 300); }
+  else if (selfReload) cueState = "URLの打ち直しで読み直し（合図ではない）→ 合図待ち";
 }
 if (mode !== "app" && mode !== "key") screen.appendChild(startBtn);
 else { const soon = document.createElement("div"); soon.id = "soon"; soon.textContent = "まもなく上映"; screen.appendChild(soon); }
+// 調べもの用（2026-11-04）：失敗した時にSafariへ戻ってスクショしてもらい、届いた文字の崩れ方を見る
+if (show) {
+  const diag = document.createElement("div"); diag.id = "diag"; document.body.appendChild(diag);
+  const parts = rawId.split("0");
+  const form = /^[a-z2-7]*(0[a-z2-7]*)+$/.test(rawId)
+    ? (parts.length === 2 && parts[0] === parts[1] && parts[0].length === 14 ? "2回送り・2回とも正しい形"
+       : parts.some(p => p.length === 14) ? "2回送り・片方が崩れている（" + parts.map(p => p.length).join("+") + "文字）"
+       : "2回送り・両方崩れている（" + parts.map(p => p.length).join("+") + "文字）")
+    : /^[0-9a-f]{22}$/i.test(rawId) ? "16進数の形" : "その他の形";
+  let exists = "確認中…";
+  const draw = () => { diag.textContent =
+    `届いた文字: ${rawId}（${rawId.length}文字）\n形: ${form}\n読んだ番号: ${decodedId}\nYouTubeにある動画か: ${exists}\n合図: ${cueState}\n読み込み: ${new Date().toLocaleTimeString("ja-JP")}`; };
+  draw();
+  // YouTubeのサムネイル（中サイズ）は、無い動画だと読み込みに失敗する
+  const img = new Image();
+  img.onload = () => { exists = img.naturalWidth > 120 ? "○ ある" : "× 無い"; draw(); };
+  img.onerror = () => { exists = "× 無い"; draw(); };
+  img.src = "https://i.ytimg.com/vi/" + encodeURIComponent(decodedId) + "/mqdefault.jpg";
+}
 window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player("yt", {
     videoId: ytId,
@@ -223,7 +251,10 @@ document.addEventListener("keydown", e => {
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
 });
 // 末尾（#mp4 など）だけ変えて開き直したときは、読み込み直して切り替える
-window.addEventListener("hashchange", () => location.reload());
+window.addEventListener("hashchange", () => {
+  try { sessionStorage.setItem("turingSelfReload", "1"); } catch (e) {}
+  location.reload();
+});
 // 「再生／一時停止」のメディアキーで消音を解く試み（2026-11-02：キーはフォーカス次第で届かないが、
 // メディアキーはフォーカスに関係なく、いま流れている動画に届いていたため）
 if ("mediaSession" in navigator) {
