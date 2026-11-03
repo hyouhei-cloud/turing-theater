@@ -22,7 +22,7 @@
   #start.hidden { display:none; }
   /* 本番（#app・#tap）では検証用の表示を隠す */
   .show #status, .show #log, .show #beat { display:none; }
-  #soon { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--gold);
+  #soon { position:absolute; inset:0; background:#000; display:flex; align-items:center; justify-content:center; color:var(--gold);
     font-size:24px; font-weight:800; letter-spacing:.2em; }
   #status { font-size:22px; font-weight:700; text-align:center; min-height:1.4em; }
   #status.ok { color:var(--ok); } #status.ng { color:var(--ng); }
@@ -49,11 +49,14 @@ const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
 // 本番用（MOVIEモジュールが開く形。2026-11-02）：
 //   #app動画ID → YouTubeアプリで開くようiPhoneに頼む（確認は、演者の合図でアプリがEnterで通す）
 //   #tap動画ID → このページで、観客に「▶ 上映開始」をタップしてもらう
+//   #key動画ID → 演者の合図（再生／一時停止のメディアキー、またはEnter）が届いてから、YouTubeアプリで開くよう頼む
+//                （2026-11-03：#appで「開きますか？」を出したまま長く待つと、Enterが効かなくなったため。
+//                  合図の時に「開きますか？」を出し、出た直後のEnterで通す）
 //   動画IDは、打ち込みで化けないよう16進数（22文字の0-9a-f）で届くので元に戻す
 //   （2026-11-03：大文字や「_」を打つとIDが崩れ「この動画は再生できません」になったため）
 //   以前の形（そのままのID、「_」を「.」にしたID）も受け付ける
 const lowerHash = hash.toLowerCase();
-const show = lowerHash.startsWith("app") ? "app" : lowerHash.startsWith("tap") ? "tap" : null;
+const show = lowerHash.startsWith("app") ? "app" : lowerHash.startsWith("tap") ? "tap" : lowerHash.startsWith("key") ? "key" : null;
 const rawId = show ? hash.slice(3) : hash;
 function decodeId(s) {
   if (/^[0-9a-f]{22}$/i.test(s)) return s.match(/../g).map(h => String.fromCharCode(parseInt(h, 16))).join("");
@@ -61,6 +64,7 @@ function decodeId(s) {
 }
 const decodedId = decodeId(rawId);
 const isApp = show === "app";
+const isKey = show === "key";
 const tapMode = show === "tap";
 if (show) document.documentElement.classList.add("show");
 if (isApp) {
@@ -70,7 +74,7 @@ if (isApp) {
 // 以前は、7秒たってもYouTubeアプリに移らなければ #tap に切り替えていた。
 // 2026-11-03：アプリは「"YouTube"で開きますか？」を出したまま演者の合図（Enter）を待つ形に変えたため、切り替えはやめた
 // （待っている間に切り替わると、確認が消えてしまう）。YouTubeアプリが無い相手には、アプリ側で #tap を選ぶ
-const mode = isApp ? "app" : lowerHash === "mp4" ? "mp4" : "yt";
+const mode = isApp ? "app" : isKey ? "key" : lowerHash === "mp4" ? "mp4" : "yt";
 const ytId = mode === "yt" ? (decodedId || DEFAULT_YT) : null;
 
 const screen = document.getElementById("screen");
@@ -90,7 +94,7 @@ function log(msg) {
 }
 function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
 
-log(`モード: ${mode === "app" ? "YouTubeアプリへ渡す" : mode === "mp4" ? "自前の動画(mp4)" : "YouTube " + ytId}`);
+log(`モード: ${mode === "key" ? "合図でYouTubeアプリへ渡す" : mode === "app" ? "YouTubeアプリへ渡す" : mode === "mp4" ? "自前の動画(mp4)" : "YouTube " + ytId}`);
 
 // ---------- 自前の動画 ----------
 if (mode === "mp4") {
@@ -111,7 +115,37 @@ if (mode === "yt") {
   const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api";
   document.head.appendChild(s);
 }
-if (mode !== "app") screen.appendChild(startBtn);
+// ---------- #key：合図を待ってからYouTubeアプリへ ----------
+// メディアキーは、ページで動画が流れていればフォーカスに関係なく届く（2026-11-02 実機）。
+// そのため消音の動画を流し続け、合図の「再生／一時停止」でその動画が止まったら、YouTubeアプリで開くよう頼む
+const loadedAt = Date.now();
+let lastLaunch = 0;
+function launchApp(source) {
+  if (!isKey) return;
+  const now = Date.now();
+  if (now - loadedAt < 1500 || now - lastLaunch < 1500) return;
+  lastLaunch = now;
+  log(`合図: ${source} → YouTubeアプリで開く`);
+  location.href = "youtube://www.youtube.com/watch?v=" + (decodedId || DEFAULT_YT);
+}
+if (mode === "key") {
+  video = document.createElement("video");
+  video.src = "test.mp4";
+  video.muted = true; video.autoplay = true; video.loop = true;
+  video.playsInline = true; video.setAttribute("playsinline", "");
+  screen.appendChild(video);
+  video.addEventListener("pause", () => {
+    if (document.visibilityState === "visible" && !video.ended) launchApp("再生／一時停止キー");
+    video.play().catch(() => {});
+  });
+  video.play().catch(e => log("自動再生できず: " + e.name));
+  if ("mediaSession" in navigator) {
+    for (const a of ["play", "pause"]) {
+      try { navigator.mediaSession.setActionHandler(a, () => launchApp("メディアキー " + a)); } catch (e) {}
+    }
+  }
+}
+if (mode !== "app" && mode !== "key") screen.appendChild(startBtn);
 else { const soon = document.createElement("div"); soon.id = "soon"; soon.textContent = "まもなく上映"; screen.appendChild(soon); }
 window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player("yt", {
@@ -180,6 +214,7 @@ setInterval(() => { document.getElementById("beat").textContent = `ページ動�
 }, 1000);
 document.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Tab") e.preventDefault();
+  if (e.key === "Enter" || e.key === " ") launchApp(`キー「${e.key === " " ? "スペース" : e.key}」`);
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
 });
 // 末尾（#mp4 など）だけ変えて開き直したときは、読み込み直して切り替える
