@@ -58,7 +58,23 @@ const hash = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
 const lowerHash = hash.toLowerCase();
 const show = lowerHash.startsWith("app") ? "app" : lowerHash.startsWith("tap") ? "tap" : lowerHash.startsWith("key") ? "key" : null;
 const rawId = show ? hash.slice(3) : hash;
+// 2026-11-03：小文字と数字（a-z・2-7）の14文字を「0」をはさんで2回送る形を追加。打ち込みで1文字抜けても、
+// 14文字そろっている方を使う
+const B32 = "abcdefghijklmnopqrstuvwxyz234567";
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+function fromB32(p) {
+  let bits = "";
+  for (const ch of p) bits += B32.indexOf(ch).toString(2).padStart(5, "0");
+  let id = "";
+  for (let i = 0; i < 11; i++) id += B64[parseInt(bits.slice(i * 6, i * 6 + 6), 2)];
+  return id;
+}
 function decodeId(s) {
+  if (/^[a-z2-7]*(0[a-z2-7]*)+$/.test(s)) {
+    const good = s.split("0").find(p => p.length === 14);
+    if (good) return fromB32(good);
+    console.warn("動画の番号が崩れて届きました: " + s);
+  }
   if (/^[0-9a-f]{22}$/i.test(s)) return s.match(/../g).map(h => String.fromCharCode(parseInt(h, 16))).join("");
   return s.replace(/\./g, "_");
 }
