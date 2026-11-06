@@ -81,7 +81,56 @@ function decodeId(s) {
   if (/^[0-9a-f]{22}$/i.test(s)) return s.match(/../g).map(h => String.fromCharCode(parseInt(h, 16))).join("");
   return s.replace(/\./g, "_");
 }
-const decodedId = decodeId(rawId);
+let decodedId = decodeId(rawId);
+// 2026-11-06：2回とも崩れて届くと、崩れた文字をそのまま番号として使い「再生できません」になっていた。
+// 2回分を見比べて正しい形を組み立て直した候補を作り、YouTubeに本当にある動画の番号を選ぶ。
+// 14文字の最後の1文字は、余りのビットが0なので「a」か「q」にしかならない（形の確認に使う）
+function looksRight(p) { return p.length === 14 && /^[a-z2-7]{13}[aq]$/.test(p); }
+function repairCandidates(s) {
+  if (!/^[a-z2-7]*(0[a-z2-7]*)+$/.test(s)) return [];
+  const parts = s.split("0").filter(p => p.length >= 12 && p.length <= 16);
+  const out = [];
+  const add = p => { if (looksRight(p) && !out.includes(p)) out.push(p); };
+  parts.forEach(add);                                   // そのまま正しい形のもの
+  for (const a of parts) for (const b of parts) {
+    if (a === b) continue;
+    if (a.length === 13) for (let k = 0; k <= 13; k++) if (b[k]) add(a.slice(0, k) + b[k] + a.slice(k));   // 1文字抜け：もう片方の同じ位置の文字で埋める
+    if (a.length === 15) for (let k = 0; k < 15; k++) { const c = a.slice(0, k) + a.slice(k + 1); if (c === b) add(c); }  // 1文字多い：もう片方と一致する形
+  }
+  for (const a of parts) {
+    if (a.length === 15) for (let k = 0; k < 15; k++) add(a.slice(0, k) + a.slice(k + 1));            // 1文字多い：1文字ずつ外す
+  }
+  return out.slice(0, 40);
+}
+function thumbExists(id) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => res(img.naturalWidth > 120);
+    img.onerror = () => res(false);
+    img.src = "https://i.ytimg.com/vi/" + encodeURIComponent(id) + "/mqdefault.jpg";
+    setTimeout(() => res(false), 6000);
+  });
+}
+let verifyState = "確認中…";
+// 合図は「再読み込み」なので、合図の時にページが読み直される。確かめた番号は読み直しても残しておき、
+// 合図の後にもう一度確かめ直さなくて済むようにする
+const verifiedKey = "turingVerified:" + rawId;
+try {
+  const cached = sessionStorage.getItem(verifiedKey);
+  if (cached) { decodedId = cached; verifyState = "○ 確認済み（合図の前に確かめた番号）"; }
+} catch (e) {}
+let verifyPromise = null;
+async function verifyId() {
+  if (!(await thumbExists(decodedId)) ) {
+    const cands = repairCandidates(rawId).map(fromB32).filter(id => id !== decodedId);
+    const results = await Promise.all(cands.map(async id => [id, await thumbExists(id)]));
+    const hit = results.find(r => r[1]);
+    if (hit) { verifyState = "○ 崩れていた番号を直して使う（" + decodedId + " → " + hit[0] + "）"; decodedId = hit[0]; }
+    else verifyState = "× YouTubeに無い番号（直せませんでした・候補" + cands.length + "個）";
+  } else verifyState = "○ ある";
+  if (verifyState.startsWith("○")) { try { sessionStorage.setItem(verifiedKey, decodedId); } catch (e) {} }
+  if (typeof drawDiag === "function") drawDiag();
+}
 const isApp = show === "app";
 const isKey = show === "key";
 const tapMode = show === "tap";
@@ -146,6 +195,7 @@ function launchApp(source) {
   if (now - lastLaunch < 1500) return;
   lastLaunch = now;
   log(`合図: ${source} → YouTubeアプリで開く`);
+  try { localStorage.setItem("turingLastLaunch", `${new Date().toLocaleTimeString("ja-JP")} ${decodedId}（${verifyState}）`); } catch (e) {}
   location.href = "youtube://www.youtube.com/watch?v=" + (decodedId || DEFAULT_YT);
 }
 // 2026-11-04：前の上映ページを表示したまま次のURLを打つと「#」の後ろだけ変わり、ページが自分で読み込み直す。
@@ -156,7 +206,14 @@ let cueState = "合図待ち";
 if (isKey) {
   const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
   const reloaded = nav ? nav.type === "reload" : (performance.navigation && performance.navigation.type === 1);
-  if (reloaded && !selfReload) { cueState = "再読み込み＝合図 → YouTubeへ"; setTimeout(() => launchApp("再読み込み"), 300); }
+  if (reloaded && !selfReload) {
+    cueState = "再読み込み＝合図 → YouTubeへ";
+    // まだ番号を確かめ終えていなければ、最大2.5秒だけ待ってから渡す
+    setTimeout(async () => {
+      if (verifyState === "確認中…" && verifyPromise) await Promise.race([verifyPromise, new Promise(r => setTimeout(r, 2500))]);
+      launchApp("再読み込み");
+    }, 300);
+  }
   else if (selfReload) cueState = "URLの打ち直しで読み直し（合図ではない）→ 合図待ち";
 }
 if (mode !== "app" && mode !== "key") screen.appendChild(startBtn);
@@ -170,16 +227,15 @@ if (show) {
        : parts.some(p => p.length === 14) ? "2回送り・片方が崩れている（" + parts.map(p => p.length).join("+") + "文字）"
        : "2回送り・両方崩れている（" + parts.map(p => p.length).join("+") + "文字）")
     : /^[0-9a-f]{22}$/i.test(rawId) ? "16進数の形" : "その他の形";
-  let exists = "確認中…";
-  const draw = () => { diag.textContent =
-    `届いた文字: ${rawId}（${rawId.length}文字）\n形: ${form}\n読んだ番号: ${decodedId}\nYouTubeにある動画か: ${exists}\n合図: ${cueState}\n読み込み: ${new Date().toLocaleTimeString("ja-JP")}`; };
-  draw();
-  // YouTubeのサムネイル（中サイズ）は、無い動画だと読み込みに失敗する
-  const img = new Image();
-  img.onload = () => { exists = img.naturalWidth > 120 ? "○ ある" : "× 無い"; draw(); };
-  img.onerror = () => { exists = "× 無い"; draw(); };
-  img.src = "https://i.ytimg.com/vi/" + encodeURIComponent(decodedId) + "/mqdefault.jpg";
+  let lastLaunch = "なし";
+  try { lastLaunch = localStorage.getItem("turingLastLaunch") || "なし"; } catch (e) {}
+  const loadedTime = new Date().toLocaleTimeString("ja-JP");
+  window.drawDiag = () => { diag.textContent =
+    `届いた文字: ${rawId}（${rawId.length}文字）\n形: ${form}\n使う番号: ${decodedId}\nYouTubeにある動画か: ${verifyState}\n合図: ${cueState}\n読み込み: ${loadedTime}\n前回YouTubeへ渡した番号: ${lastLaunch}`; };
+  drawDiag();
 }
+// YouTubeのサムネイル（中サイズ）は、無い動画だと小さな代わりの絵になる（幅120）。合図を待つ間に確かめて、必要なら直す
+if (show && decodedId && verifyState === "確認中…") verifyPromise = verifyId();
 window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player("yt", {
     videoId: ytId,
