@@ -255,7 +255,7 @@ if (isKey) {
     const go = async why => {
       if (launched) return; launched = true;
       setKb(why);
-      kb.blur();
+      // 2026-11-09：欄は外さない。「開きますか？」の Enter で隠れた直後に、アプリが Eject で出し直すため（欄が入力先のままである必要がある）
       if (verifyState === "確認中…" && verifyPromise) await Promise.race([verifyPromise, new Promise(r => setTimeout(r, 2500))]);
       launchApp("再読み込み");
     };
