@@ -72,21 +72,26 @@ function fromB32(p) {
   for (let i = 0; i < 11; i++) id += B64[parseInt(bits.slice(i * 6, i * 6 + 6), 2)];
   return id;
 }
-function decodeId(s) {
+// 2026-11-09：「i5」が「ĭ」（記号つきの文字）になって届き、形の確認ではじかれて正しい方の14文字まで
+// 使えなかった。記号を外し、a-z・0-9 以外の文字を取り除いてから読む（抜けた分はもう片方で直す）
+function cleanB32(s) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function decodeId(raw) {
+  const s = cleanB32(raw);
   if (/^[a-z2-7]*(0[a-z2-7]*)+$/.test(s)) {
     const good = s.split("0").find(p => p.length === 14);
     if (good) return fromB32(good);
     console.warn("動画の番号が崩れて届きました: " + s);
   }
-  if (/^[0-9a-f]{22}$/i.test(s)) return s.match(/../g).map(h => String.fromCharCode(parseInt(h, 16))).join("");
-  return s.replace(/\./g, "_");
+  if (/^[0-9a-f]{22}$/i.test(raw)) return raw.match(/../g).map(h => String.fromCharCode(parseInt(h, 16))).join("");
+  return raw.replace(/\./g, "_");
 }
 let decodedId = decodeId(rawId);
 // 2026-11-06：2回とも崩れて届くと、崩れた文字をそのまま番号として使い「再生できません」になっていた。
 // 2回分を見比べて正しい形を組み立て直した候補を作り、YouTubeに本当にある動画の番号を選ぶ。
 // 14文字の最後の1文字は、余りのビットが0なので「a」か「q」にしかならない（形の確認に使う）
 function looksRight(p) { return p.length === 14 && /^[a-z2-7]{13}[aq]$/.test(p); }
-function repairCandidates(s) {
+function repairCandidates(raw) {
+  const s = cleanB32(raw);
   if (!/^[a-z2-7]*(0[a-z2-7]*)+$/.test(s)) return [];
   const parts = s.split("0").filter(p => p.length >= 12 && p.length <= 16);
   const out = [];
