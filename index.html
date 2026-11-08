@@ -230,13 +230,18 @@ if (isKey) {
     kb.addEventListener("focus", () => note("欄が選ばれた"));
     kb.addEventListener("blur", () => note("欄が外れた"));
     const focusKb = () => { try { kb.focus({ preventScroll: true }); } catch (e) { kb.focus(); } };
-    focusKb();
-    setKb(document.activeElement === kb ? "欄を選んだ・キーボード待ち" : "欄を選べず・Tab待ち");
-    // Tab が届いたら：欄が選ばれていなければ、iPhone 自身の Tab の動きで欄へ移らせる（ページで選ぶより確実なはず）。
-    // 選ばれていれば、よそへ移らないように止める
+    // 2026-11-09 実機：読み込んですぐページから欄を選ぶと、選ばれた扱い（activeElement）にはなるが「選ばれた」知らせは来ず、
+    // Tab・Eject を送ってもキーボードは出なかった（iPhone は、人の操作なしにページが選んだ欄を本当の入力先にしない）。
+    // → ページからは選ばず、アプリが送る Tab で iPhone 自身に欄へ移らせる。移らなかった時だけ、キーの知らせの中で選ぶ
+    setKb("Tab待ち");
     document.addEventListener("keydown", e => {
       note("キー " + (e.key || e.keyCode));
-      if (e.key === "Tab" && !launched && document.activeElement === kb) e.preventDefault();
+      if (e.key === "Tab" && !launched) {
+        setTimeout(() => {
+          if (document.activeElement === kb) note("Tabで欄へ移った");
+          else { note("Tabで移らず（" + (document.activeElement ? document.activeElement.tagName : "なし") + "）→ ページで選ぶ"); focusKb(); }
+        }, 60);
+      }
     }, true);
     const vv = window.visualViewport;
     const baseH = vv ? vv.height : window.innerHeight;
