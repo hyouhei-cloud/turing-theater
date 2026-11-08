@@ -222,13 +222,21 @@ if (isKey) {
     kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;margin:0;";
     document.body.appendChild(kb);
     let kbState = "欄を選ぶ";
-    const setKb = t => { kbState = t; cueState = "再読み込み＝合図 → " + t; if (typeof drawDiag === "function") drawDiag(); };
+    // 調べもの用：届いたキー・欄の選ばれ方・画面の高さを、読み込みからの秒数つきで残す
+    const t0 = performance.now();
+    const kbLog = [];
+    const note = m => { kbLog.push(((performance.now() - t0) / 1000).toFixed(1) + "s " + m); cueState = "再読み込み＝合図 → " + kbState + "\nキーボードの記録: " + kbLog.join(" / "); if (typeof drawDiag === "function") drawDiag(); };
+    const setKb = t => { kbState = t; note(t); };
+    kb.addEventListener("focus", () => note("欄が選ばれた"));
+    kb.addEventListener("blur", () => note("欄が外れた"));
     const focusKb = () => { try { kb.focus({ preventScroll: true }); } catch (e) { kb.focus(); } };
     focusKb();
     setKb(document.activeElement === kb ? "欄を選んだ・キーボード待ち" : "欄を選べず・Tab待ち");
-    // Tab が届いたら、欄を選ぶ（選んであれば、よそへ移らないようにする）
+    // Tab が届いたら：欄が選ばれていなければ、iPhone 自身の Tab の動きで欄へ移らせる（ページで選ぶより確実なはず）。
+    // 選ばれていれば、よそへ移らないように止める
     document.addEventListener("keydown", e => {
-      if (e.key === "Tab" && !launched) { e.preventDefault(); focusKb(); setKb("Tabで欄を選んだ・キーボード待ち"); }
+      note("キー " + (e.key || e.keyCode));
+      if (e.key === "Tab" && !launched && document.activeElement === kb) e.preventDefault();
     }, true);
     const vv = window.visualViewport;
     const baseH = vv ? vv.height : window.innerHeight;
@@ -240,8 +248,10 @@ if (isKey) {
       if (verifyState === "確認中…" && verifyPromise) await Promise.race([verifyPromise, new Promise(r => setTimeout(r, 2500))]);
       launchApp("再読み込み");
     };
-    if (vv) vv.addEventListener("resize", () => { if (vv.height < baseH * 0.85) go("キーボードが出た → YouTubeへ"); });
-    setTimeout(() => go("キーボードが出ないまま → YouTubeへ"), 2000);
+    note("画面の高さ " + Math.round(baseH));
+    if (vv) vv.addEventListener("resize", () => { note("高さ " + Math.round(vv.height)); if (vv.height < baseH * 0.85) go("キーボードが出た → YouTubeへ"); });
+    // 2026-11-09 実機：2秒ではキーボードが出ないまま渡した（Eject が届く前に時間切れだった疑い）。3.5秒にのばす
+    setTimeout(() => go("キーボードが出ないまま → YouTubeへ"), 3500);
   }
   else if (selfReload) cueState = "URLの打ち直しで読み直し（合図ではない）→ 合図待ち";
 }
