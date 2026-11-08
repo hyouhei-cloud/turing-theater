@@ -212,12 +212,36 @@ if (isKey) {
   const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
   const reloaded = nav ? nav.type === "reload" : (performance.navigation && performance.navigation.type === 1);
   if (reloaded && !selfReload) {
-    cueState = "再読み込み＝合図 → YouTubeへ";
-    // まだ番号を確かめ終えていなければ、最大2.5秒だけ待ってから渡す
-    setTimeout(async () => {
+    cueState = "再読み込み＝合図 → キーボードを戻してからYouTubeへ";
+    // 2026-11-09：合図の⌘Rで相手の画面キーボードが隠れ、その後に入力欄が選ばれる瞬間が無いので戻らなかった。
+    // 見えない入力欄を選んでおき、アプリが送る Tab（念のため）→ キーボードを戻す信号（Eject）で出してから、
+    // 欄を外してYouTubeへ渡す。キーボードが出たのは画面の高さの変化で知る。出なくても、少し待てば渡す
+    const kb = document.createElement("input");
+    kb.id = "kb"; kb.type = "text"; kb.autocomplete = "off"; kb.setAttribute("autocorrect", "off");
+    kb.setAttribute("autocapitalize", "off"); kb.spellcheck = false; kb.setAttribute("aria-hidden", "true");
+    kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;margin:0;";
+    document.body.appendChild(kb);
+    let kbState = "欄を選ぶ";
+    const setKb = t => { kbState = t; cueState = "再読み込み＝合図 → " + t; if (typeof drawDiag === "function") drawDiag(); };
+    const focusKb = () => { try { kb.focus({ preventScroll: true }); } catch (e) { kb.focus(); } };
+    focusKb();
+    setKb(document.activeElement === kb ? "欄を選んだ・キーボード待ち" : "欄を選べず・Tab待ち");
+    // Tab が届いたら、欄を選ぶ（選んであれば、よそへ移らないようにする）
+    document.addEventListener("keydown", e => {
+      if (e.key === "Tab" && !launched) { e.preventDefault(); focusKb(); setKb("Tabで欄を選んだ・キーボード待ち"); }
+    }, true);
+    const vv = window.visualViewport;
+    const baseH = vv ? vv.height : window.innerHeight;
+    let launched = false;
+    const go = async why => {
+      if (launched) return; launched = true;
+      setKb(why);
+      kb.blur();
       if (verifyState === "確認中…" && verifyPromise) await Promise.race([verifyPromise, new Promise(r => setTimeout(r, 2500))]);
       launchApp("再読み込み");
-    }, 300);
+    };
+    if (vv) vv.addEventListener("resize", () => { if (vv.height < baseH * 0.85) go("キーボードが出た → YouTubeへ"); });
+    setTimeout(() => go("キーボードが出ないまま → YouTubeへ"), 2000);
   }
   else if (selfReload) cueState = "URLの打ち直しで読み直し（合図ではない）→ 合図待ち";
 }
