@@ -208,6 +208,9 @@ function launchApp(source) {
 let selfReload = false;
 try { selfReload = sessionStorage.getItem("turingSelfReload") === "1"; sessionStorage.removeItem("turingSelfReload"); } catch (e) {}
 let cueState = "合図待ち";
+// 2026-11-09：合図の後にキーボードを戻す間は、昔の「キー受け」欄（catcher：キーボードを出さない設定で、
+// 1秒ごとに選び直し、Tab も止める）を止める。3回目の実機で、Tab がこの欄へ行き、0.2秒後に選択も奪われていた
+let kbMode = false;
 if (isKey) {
   const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
   const reloaded = nav ? nav.type === "reload" : (performance.navigation && performance.navigation.type === 1);
@@ -221,6 +224,9 @@ if (isKey) {
     kb.setAttribute("autocapitalize", "off"); kb.spellcheck = false; kb.setAttribute("aria-hidden", "true");
     kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;margin:0;";
     document.body.appendChild(kb);
+    kbMode = true;
+    const oldCatcher = document.getElementById("catcher");
+    if (oldCatcher) { oldCatcher.blur(); oldCatcher.remove(); }
     let kbState = "欄を選ぶ";
     // 調べもの用：届いたキー・欄の選ばれ方・画面の高さを、読み込みからの秒数つきで残す
     const t0 = performance.now();
@@ -336,6 +342,7 @@ const catcher = document.getElementById("catcher");
 catcher.addEventListener("input", () => { catcher.value = ""; });
 function pullFocus(why) {
   // 2026-11-02 実機で body への focus では「ページ外」のままだったため、入力欄にフォーカスを当てる
+  if (kbMode) return;
   try { window.focus(); if (document.activeElement !== catcher) catcher.focus({ preventScroll: true }); } catch (e) {}
   const f = document.hasFocus();
   if (f !== lastFocus) { log(`フォーカス: ${f ? "ページ" : "ページ外"}（${why}）`); lastFocus = f; }
@@ -346,7 +353,7 @@ const pullTimer = setInterval(() => { pullFocus("自動"); if (++pulls > 20) cle
 setInterval(() => { document.getElementById("beat").textContent = `ページ動作中 ${new Date().toLocaleTimeString("ja-JP")}　フォーカス=${document.hasFocus() ? "ページ" : "ページ外"}・入力欄=${document.activeElement === catcher ? "○" : "×"}`;   pullFocus("監視");
 }, 1000);
 document.addEventListener("keydown", e => {
-  if (e.key === " " || e.key === "Tab") e.preventDefault();
+  if (e.key === " " || (e.key === "Tab" && !kbMode)) e.preventDefault();
   if ((e.key === "Enter" || e.key === " ") && Date.now() - loadedAt > 1500) launchApp(`キー「${e.key === " " ? "スペース" : e.key}」`);
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
 });
