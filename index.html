@@ -212,6 +212,72 @@ function launchApp(source) {
 // これも「再読み込み」と記録されるため、準備の時点で確認が出てしまっていた → 自分で読み直した時は合図にしない
 let selfReload = false;
 try { selfReload = sessionStorage.getItem("turingSelfReload") === "1"; sessionStorage.removeItem("turingSelfReload"); } catch (e) {}
+// 合図の後の、キーボードを戻してから YouTube へ渡す流れ（再読み込みで始める。2026-11-09：再読み込みが届かず
+// 「合図待ち」のまま Tab が来た時も、この流れを始める。その時は Tab の知らせの中で欄を選ぶ）
+function startKbMode(how, tabEvent) {
+  if (kbMode) return;
+  cueState = how + " → キーボードを戻してからYouTubeへ";
+  // 2026-11-09：合図の⌘Rで相手の画面キーボードが隠れ、その後に入力欄が選ばれる瞬間が無いので戻らなかった。
+  // 見えない入力欄を選んでおき、アプリが送る Tab（念のため）→ キーボードを戻す信号（Eject）で出してから、
+  // 欄を外してYouTubeへ渡す。キーボードが出たのは画面の高さの変化で知る。出なくても、少し待てば渡す
+  const kb = document.createElement("input");
+  kb.id = "kb"; kb.type = "text"; kb.autocomplete = "off"; kb.setAttribute("autocorrect", "off");
+  kb.setAttribute("autocapitalize", "off"); kb.spellcheck = false; kb.setAttribute("aria-hidden", "true");
+  kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;margin:0;";
+  // 2026-11-09 試し2：ページの命令で youtube.com へ移っても Safari の中で開いた（人の操作でないため、アプリに渡らない）。
+  // 欄をフォームに入れ、アプリが送る Enter（人の操作と同じ扱い）で youtube.com へ送り出す → YouTube アプリで開くはず。
+  // 確認の画面が出ないので欄は選ばれたままになり、Enter の直後の Eject でキーボードを出し直せる
+  const form = document.createElement("form");
+  form.action = "https://www.youtube.com/watch"; form.method = "get";
+  form.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;";
+  const vField = document.createElement("input"); vField.type = "hidden"; vField.name = "v";
+  form.appendChild(kb); form.appendChild(vField);
+  form.addEventListener("submit", () => {
+    vField.value = decodedId || DEFAULT_YT;
+    note("Enterで youtube.com へ（" + vField.value + "）");
+    try { localStorage.setItem("turingLastLaunch", `${new Date().toLocaleTimeString("ja-JP")} ${vField.value}（${verifyState}・Enterで送り出し）`); } catch (e) {}
+  });
+  document.body.appendChild(form);
+  kbMode = true;
+  const oldCatcher = document.getElementById("catcher");
+  if (oldCatcher) { oldCatcher.blur(); oldCatcher.remove(); }
+  let kbState = "欄を選ぶ";
+  // 調べもの用：届いたキー・欄の選ばれ方・画面の高さを、読み込みからの秒数つきで残す
+  const t0 = performance.now();
+  const kbLog = [];
+  const note = m => { kbLog.push(((performance.now() - t0) / 1000).toFixed(1) + "s " + m); cueState = how + " → " + kbState + "\nキーボードの記録: " + kbLog.join(" / "); if (typeof drawDiag === "function") drawDiag(); };
+  const setKb = t => { kbState = t; note(t); };
+  kb.addEventListener("focus", () => note("欄が選ばれた"));
+  kb.addEventListener("blur", () => note("欄が外れた"));
+  const focusKb = () => { try { kb.focus({ preventScroll: true }); } catch (e) { kb.focus(); } };
+  // 2026-11-09 実機：読み込んですぐページから欄を選ぶと、選ばれた扱い（activeElement）にはなるが「選ばれた」知らせは来ず、
+  // Tab・Eject を送ってもキーボードは出なかった（iPhone は、人の操作なしにページが選んだ欄を本当の入力先にしない）。
+  // → ページからは選ばず、アプリが送る Tab で iPhone 自身に欄へ移らせる。移らなかった時だけ、キーの知らせの中で選ぶ
+  setKb("Tab待ち");
+  document.addEventListener("keydown", e => {
+    note("キー " + (e.key || e.keyCode));
+    if (e.key === "Tab" && !launched) {
+      setTimeout(() => {
+        if (document.activeElement === kb) note("Tabで欄へ移った");
+        else { note("Tabで移らず（" + (document.activeElement ? document.activeElement.tagName : "なし") + "）→ ページで選ぶ"); focusKb(); }
+      }, 60);
+    }
+  }, true);
+  const vv = window.visualViewport;
+  const baseH = vv ? vv.height : window.innerHeight;
+  let launched = false;
+  const go = async why => {
+    if (launched) return; launched = true;
+    setKb(why);
+  };
+  note("画面の高さ " + Math.round(baseH));
+  if (vv) vv.addEventListener("resize", () => { note("高さ " + Math.round(vv.height)); if (vv.height < baseH * 0.85) go("キーボードが出た → Enter待ち"); });
+  // 2026-11-09 実機：2秒ではキーボードが出ないまま渡した（Eject が届く前に時間切れだった疑い）。3.5秒にのばす
+  setTimeout(() => go("キーボードが出ないまま → Enter待ち"), 3500);
+  // Enter も届かなかった時の最後の保険：これまでどおり「開きますか？」を出す
+  setTimeout(() => { if (document.visibilityState === "visible") { note("Enterが来ない → 開きますか？を出す"); launchApp("保険"); } }, 7000);
+  if (tabEvent) { tabEvent.preventDefault(); focusKb(); note("Tabで始めた（再読み込みは届かず）"); }
+}
 let cueState = "合図待ち";
 // 2026-11-09：合図の後にキーボードを戻す間は、昔の「キー受け」欄（catcher：キーボードを出さない設定で、
 // 1秒ごとに選び直し、Tab も止める）を止める。3回目の実機で、Tab がこの欄へ行き、0.2秒後に選択も奪われていた
@@ -220,68 +286,12 @@ if (isKey) {
   const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
   const reloaded = nav ? nav.type === "reload" : (performance.navigation && performance.navigation.type === 1);
   if (reloaded && !selfReload) {
-    cueState = "再読み込み＝合図 → キーボードを戻してからYouTubeへ";
-    // 2026-11-09：合図の⌘Rで相手の画面キーボードが隠れ、その後に入力欄が選ばれる瞬間が無いので戻らなかった。
-    // 見えない入力欄を選んでおき、アプリが送る Tab（念のため）→ キーボードを戻す信号（Eject）で出してから、
-    // 欄を外してYouTubeへ渡す。キーボードが出たのは画面の高さの変化で知る。出なくても、少し待てば渡す
-    const kb = document.createElement("input");
-    kb.id = "kb"; kb.type = "text"; kb.autocomplete = "off"; kb.setAttribute("autocorrect", "off");
-    kb.setAttribute("autocapitalize", "off"); kb.spellcheck = false; kb.setAttribute("aria-hidden", "true");
-    kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;margin:0;";
-    // 2026-11-09 試し2：ページの命令で youtube.com へ移っても Safari の中で開いた（人の操作でないため、アプリに渡らない）。
-    // 欄をフォームに入れ、アプリが送る Enter（人の操作と同じ扱い）で youtube.com へ送り出す → YouTube アプリで開くはず。
-    // 確認の画面が出ないので欄は選ばれたままになり、Enter の直後の Eject でキーボードを出し直せる
-    const form = document.createElement("form");
-    form.action = "https://www.youtube.com/watch"; form.method = "get";
-    form.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;";
-    const vField = document.createElement("input"); vField.type = "hidden"; vField.name = "v";
-    form.appendChild(kb); form.appendChild(vField);
-    form.addEventListener("submit", () => {
-      vField.value = decodedId || DEFAULT_YT;
-      note("Enterで youtube.com へ（" + vField.value + "）");
-      try { localStorage.setItem("turingLastLaunch", `${new Date().toLocaleTimeString("ja-JP")} ${vField.value}（${verifyState}・Enterで送り出し）`); } catch (e) {}
-    });
-    document.body.appendChild(form);
-    kbMode = true;
-    const oldCatcher = document.getElementById("catcher");
-    if (oldCatcher) { oldCatcher.blur(); oldCatcher.remove(); }
-    let kbState = "欄を選ぶ";
-    // 調べもの用：届いたキー・欄の選ばれ方・画面の高さを、読み込みからの秒数つきで残す
-    const t0 = performance.now();
-    const kbLog = [];
-    const note = m => { kbLog.push(((performance.now() - t0) / 1000).toFixed(1) + "s " + m); cueState = "再読み込み＝合図 → " + kbState + "\nキーボードの記録: " + kbLog.join(" / "); if (typeof drawDiag === "function") drawDiag(); };
-    const setKb = t => { kbState = t; note(t); };
-    kb.addEventListener("focus", () => note("欄が選ばれた"));
-    kb.addEventListener("blur", () => note("欄が外れた"));
-    const focusKb = () => { try { kb.focus({ preventScroll: true }); } catch (e) { kb.focus(); } };
-    // 2026-11-09 実機：読み込んですぐページから欄を選ぶと、選ばれた扱い（activeElement）にはなるが「選ばれた」知らせは来ず、
-    // Tab・Eject を送ってもキーボードは出なかった（iPhone は、人の操作なしにページが選んだ欄を本当の入力先にしない）。
-    // → ページからは選ばず、アプリが送る Tab で iPhone 自身に欄へ移らせる。移らなかった時だけ、キーの知らせの中で選ぶ
-    setKb("Tab待ち");
-    document.addEventListener("keydown", e => {
-      note("キー " + (e.key || e.keyCode));
-      if (e.key === "Tab" && !launched) {
-        setTimeout(() => {
-          if (document.activeElement === kb) note("Tabで欄へ移った");
-          else { note("Tabで移らず（" + (document.activeElement ? document.activeElement.tagName : "なし") + "）→ ページで選ぶ"); focusKb(); }
-        }, 60);
-      }
-    }, true);
-    const vv = window.visualViewport;
-    const baseH = vv ? vv.height : window.innerHeight;
-    let launched = false;
-    const go = async why => {
-      if (launched) return; launched = true;
-      setKb(why);
-    };
-    note("画面の高さ " + Math.round(baseH));
-    if (vv) vv.addEventListener("resize", () => { note("高さ " + Math.round(vv.height)); if (vv.height < baseH * 0.85) go("キーボードが出た → Enter待ち"); });
-    // 2026-11-09 実機：2秒ではキーボードが出ないまま渡した（Eject が届く前に時間切れだった疑い）。3.5秒にのばす
-    setTimeout(() => go("キーボードが出ないまま → Enter待ち"), 3500);
-    // Enter も届かなかった時の最後の保険：これまでどおり「開きますか？」を出す
-    setTimeout(() => { if (document.visibilityState === "visible") { note("Enterが来ない → 開きますか？を出す"); launchApp("保険"); } }, 7000);
+    startKbMode("再読み込み＝合図");
   }
   else if (selfReload) cueState = "URLの打ち直しで読み直し（合図ではない）→ 合図待ち";
+  if (!kbMode) document.addEventListener("keydown", e => {
+    if (e.key === "Tab" && !kbMode && Date.now() - loadedAt > 1500) startKbMode("Tabが合図（再読み込みは届かず）", e);
+  }, true);
 }
 if (mode !== "app" && mode !== "key") screen.appendChild(startBtn);
 else { const soon = document.createElement("div"); soon.id = "soon"; soon.textContent = "まもなく上映"; screen.appendChild(soon); }
