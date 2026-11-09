@@ -228,7 +228,20 @@ if (isKey) {
     kb.id = "kb"; kb.type = "text"; kb.autocomplete = "off"; kb.setAttribute("autocorrect", "off");
     kb.setAttribute("autocapitalize", "off"); kb.spellcheck = false; kb.setAttribute("aria-hidden", "true");
     kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;margin:0;";
-    document.body.appendChild(kb);
+    // 2026-11-09 試し2：ページの命令で youtube.com へ移っても Safari の中で開いた（人の操作でないため、アプリに渡らない）。
+    // 欄をフォームに入れ、アプリが送る Enter（人の操作と同じ扱い）で youtube.com へ送り出す → YouTube アプリで開くはず。
+    // 確認の画面が出ないので欄は選ばれたままになり、Enter の直後の Eject でキーボードを出し直せる
+    const form = document.createElement("form");
+    form.action = "https://www.youtube.com/watch"; form.method = "get";
+    form.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;";
+    const vField = document.createElement("input"); vField.type = "hidden"; vField.name = "v";
+    form.appendChild(kb); form.appendChild(vField);
+    form.addEventListener("submit", () => {
+      vField.value = decodedId || DEFAULT_YT;
+      note("Enterで youtube.com へ（" + vField.value + "）");
+      try { localStorage.setItem("turingLastLaunch", `${new Date().toLocaleTimeString("ja-JP")} ${vField.value}（${verifyState}・Enterで送り出し）`); } catch (e) {}
+    });
+    document.body.appendChild(form);
     kbMode = true;
     const oldCatcher = document.getElementById("catcher");
     if (oldCatcher) { oldCatcher.blur(); oldCatcher.remove(); }
@@ -260,15 +273,13 @@ if (isKey) {
     const go = async why => {
       if (launched) return; launched = true;
       setKb(why);
-      // 2026-11-09：欄は外さない。「開きますか？」の Enter で隠れた直後に、アプリが Eject で出し直すため（欄が入力先のままである必要がある）
-      if (verifyState === "確認中…" && verifyPromise) await Promise.race([verifyPromise, new Promise(r => setTimeout(r, 2500))]);
-      launchByWebLink = true;
-      launchApp("再読み込み");
     };
     note("画面の高さ " + Math.round(baseH));
-    if (vv) vv.addEventListener("resize", () => { note("高さ " + Math.round(vv.height)); if (vv.height < baseH * 0.85) go("キーボードが出た → YouTubeへ"); });
+    if (vv) vv.addEventListener("resize", () => { note("高さ " + Math.round(vv.height)); if (vv.height < baseH * 0.85) go("キーボードが出た → Enter待ち"); });
     // 2026-11-09 実機：2秒ではキーボードが出ないまま渡した（Eject が届く前に時間切れだった疑い）。3.5秒にのばす
-    setTimeout(() => go("キーボードが出ないまま → YouTubeへ"), 3500);
+    setTimeout(() => go("キーボードが出ないまま → Enter待ち"), 3500);
+    // Enter も届かなかった時の最後の保険：これまでどおり「開きますか？」を出す
+    setTimeout(() => { if (document.visibilityState === "visible") { note("Enterが来ない → 開きますか？を出す"); launchApp("保険"); } }, 7000);
   }
   else if (selfReload) cueState = "URLの打ち直しで読み直し（合図ではない）→ 合図待ち";
 }
@@ -360,6 +371,7 @@ setInterval(() => { document.getElementById("beat").textContent = `ページ動�
 }, 1000);
 document.addEventListener("keydown", e => {
   if (e.key === " " || (e.key === "Tab" && !kbMode)) e.preventDefault();
+  if (kbMode && document.activeElement && document.activeElement.id === "kb") return;   // 欄の Enter はフォームが送り出す
   if ((e.key === "Enter" || e.key === " ") && Date.now() - loadedAt > 1500) launchApp(`キー「${e.key === " " ? "スペース" : e.key}」`);
   unlock(`キー「${e.key === " " ? "スペース" : e.key}」`);
 });
