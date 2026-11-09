@@ -232,7 +232,9 @@ function startKbMode(how, tabEvent) {
   form.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;";
   const vField = document.createElement("input"); vField.type = "hidden"; vField.name = "v";
   form.appendChild(kb); form.appendChild(vField);
+  let submitted = false;
   form.addEventListener("submit", () => {
+    submitted = true;
     vField.value = decodedId || DEFAULT_YT;
     note("Enterで youtube.com へ（" + vField.value + "）");
     try { localStorage.setItem("turingLastLaunch", `${new Date().toLocaleTimeString("ja-JP")} ${vField.value}（${verifyState}・Enterで送り出し）`); } catch (e) {}
@@ -275,7 +277,16 @@ function startKbMode(how, tabEvent) {
   // 2026-11-09 実機：2秒ではキーボードが出ないまま渡した（Eject が届く前に時間切れだった疑い）。3.5秒にのばす
   setTimeout(() => go("キーボードが出ないまま → Enter待ち"), 3500);
   // Enter も届かなかった時の最後の保険：これまでどおり「開きますか？」を出す
-  setTimeout(() => { if (document.visibilityState === "visible") { note("Enterが来ない → 開きますか？を出す"); launchApp("保険"); } }, 7000);
+  // 2026-11-09 実機：YouTube で再生でき、メモ帳でもキーボードは出ていたのに、Safari に戻った時に消えた。
+  // 裏にいる間は時計が止まり、戻った瞬間にこの7秒の保険が動いて「開きますか？」を出していた疑い（確認の画面はキーボードを隠す）。
+  // → Enter で送り出した後や、一度でも裏へ回った後は、保険を出さない
+  let wentAway = false;
+  document.addEventListener("visibilitychange", () => { note("画面 " + document.visibilityState); if (document.visibilityState === "hidden") wentAway = true; });
+  window.addEventListener("pageshow", e => note("ページ表示" + (e.persisted ? "（保存から）" : "")));
+  setTimeout(() => {
+    if (submitted || wentAway) { note("保険は出さない（" + (submitted ? "送り出し済み" : "裏へ回った") + "）"); return; }
+    if (document.visibilityState === "visible") { note("Enterが来ない → 開きますか？を出す"); launchApp("保険"); }
+  }, 7000);
   if (tabEvent) { tabEvent.preventDefault(); focusKb(); note("Tabで始めた（再読み込みは届かず）"); }
 }
 let cueState = "合図待ち";
