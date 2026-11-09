@@ -194,6 +194,10 @@ if (mode === "yt") {
 // 2026-11-03 実機：メディアキーは消音の動画に届かず、キーもフォーカス次第で届かないため、再読み込みを合図にした
 const loadedAt = Date.now();
 let lastLaunch = 0;
+// 2026-11-09（試し）：合図の後は「"YouTube"で開きますか？」を出さず、YouTube のふつうのアドレスで開く
+// （iPhone は youtube.com のアドレスを YouTube アプリで開く＝ユニバーサルリンク）。確認から移る場面でキーボードが
+// 隠れていたため。Enter で「開く」を押す必要もなくなる。アプリで開かず Safari の中で開いた時は、この試しは失敗
+let launchByWebLink = false;
 function launchApp(source) {
   if (!isKey) return;
   const now = Date.now();
@@ -201,7 +205,8 @@ function launchApp(source) {
   lastLaunch = now;
   log(`合図: ${source} → YouTubeアプリで開く`);
   try { localStorage.setItem("turingLastLaunch", `${new Date().toLocaleTimeString("ja-JP")} ${decodedId}（${verifyState}）`); } catch (e) {}
-  location.href = "youtube://www.youtube.com/watch?v=" + (decodedId || DEFAULT_YT);
+  const vid = decodedId || DEFAULT_YT;
+  location.href = launchByWebLink ? "https://www.youtube.com/watch?v=" + vid : "youtube://www.youtube.com/watch?v=" + vid;
 }
 // 2026-11-04：前の上映ページを表示したまま次のURLを打つと「#」の後ろだけ変わり、ページが自分で読み込み直す。
 // これも「再読み込み」と記録されるため、準備の時点で確認が出てしまっていた → 自分で読み直した時は合図にしない
@@ -257,6 +262,7 @@ if (isKey) {
       setKb(why);
       // 2026-11-09：欄は外さない。「開きますか？」の Enter で隠れた直後に、アプリが Eject で出し直すため（欄が入力先のままである必要がある）
       if (verifyState === "確認中…" && verifyPromise) await Promise.race([verifyPromise, new Promise(r => setTimeout(r, 2500))]);
+      launchByWebLink = true;
       launchApp("再読み込み");
     };
     note("画面の高さ " + Math.round(baseH));
